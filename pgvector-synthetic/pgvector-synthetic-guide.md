@@ -3,7 +3,7 @@
 This guide walks through every numbered section of the `pgvector-synthetic.ipynb` notebook and explains how to operate it end-to-end. The workflow builds a synthetic patient analytics stack on top of PostgreSQL with the `pgvector` extension, generates embeddings with a local Ollama model, and layers semantic search plus visual analytics.
 
 ## Prerequisites
-- **PostgreSQL** reachable at `localhost:5432` with a database named `patient_db` and credentials matching the connection cell (`user="kevin"`, `password="password123"`). Install the [`pgvector`](https://github.com/pgvector/pgvector) extension in this database.
+- **PostgreSQL** reachable at `localhost:6432` with a database named `patient_db` and credentials matching the connection cell (`user="kevin"`, `password="password123"`). Install the [`pgvector`](https://github.com/pgvector/pgvector) extension in this database. Run the docker-compose file in the project root for a quick install.
 - **Python environment** capable of installing packages listed below (the notebook relies on pip inside the runtime).
 - **Data files** `data/patients.csv` and `data/allergies.csv` present relative to the notebook.
 - **Ollama** running locally on the default port `11434` with the `phi4-mini` embedding model pulled and ready (`ollama pull phi4-mini`).
