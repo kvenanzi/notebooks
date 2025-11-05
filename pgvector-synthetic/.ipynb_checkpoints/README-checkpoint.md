@@ -1,0 +1,3 @@
+The pgvector-synthetic.ipynb notebook bootstraps a synthetic patient analytics pipeline by loading fictional patient and allergy CSVs into PostgreSQL, creating normalized tables, and enriching each patient’s record into a concise “context” paragraph that’s embedded 
+  with a local Ollama phi4-mini model. Those embeddings are stored in a pgvector-enabled table, visualized via UMAP, and queried through a hybrid semantic search layer that blends natural-language filters (e.g., gender, SDOH risk, recent mortality) with cosine        
+  similarity to surface the most relevant synthetic patients for exploratory analysis. 

@@ -1,0 +1,4 @@
+We now have a working prototype that loads the synthetic patient datasets into PostgreSQL, enriches each record into a narrative profile, and uses pgvector plus a local Ollama (3.8B) model to run natural-language searches across the cohort—so clinical, demographic, 
+  and social determinants signals surface instantly. Even with this smaller model, the test already shows we can interpret complex queries, visualize cohort similarity, and trace why specific patients are returned, which has clear potential for care-management triage,
+  population health analytics, and explainable AI demos. Next, I want to expand the pipeline to cover the full set of synthetic data our generator provides—care plans, conditions, encounters, family history, immunizations, medications, observations, procedures, and   
+  richer mortality details—and benchmark against a larger embedding model to see how much fidelity we gain as the patient graph grows.   
