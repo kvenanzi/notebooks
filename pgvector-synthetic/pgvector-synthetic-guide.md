@@ -5,6 +5,7 @@ This guide walks through every numbered section of the `pgvector-synthetic.ipynb
 ## Prerequisites
 - **PostgreSQL** reachable at `localhost:6432` with a database named `patient_db` and credentials matching the connection cell (`user="kevin"`, `password="password123"`). Install the [`pgvector`](https://github.com/pgvector/pgvector) extension in this database. Run the docker-compose file in the project root for a quick install.
 - **Python environment** capable of installing packages listed below (the notebook relies on pip inside the runtime).
+- The notebook auto-loads environment variables from `pgvector-synthetic/.env` via `python-dotenv`.
 - **Data files** `data/patients.csv` and `data/allergies.csv` present relative to the notebook.
 - **Ollama** running locally on the default port `11434` with the `phi4-mini` embedding model pulled and ready (`ollama pull phi4-mini`).
 - **Optional hosted embeddings** When selecting the `llm_api` backend, export `OPENAI_API_KEY` and (if needed) `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`, `OPENAI_ORG`, plus `EMBEDDING_DIM` if the remote vector dimensionality differs.
@@ -94,3 +95,12 @@ Takes the last query embedding (`q_emb`), transforms it via the fitted UMAP redu
 - To swap embedding models or providers, update `EMBEDDING_BACKEND` (and related environment variables) and ensure the `VECTOR(n)` column matches the returned dimensionality.
 
 With this guide, you can trace how each section of the notebook transforms raw CSVs into a searchable, explainable semantic layer on top of Postgres + pgvector.
+
+## Troubleshooting
+- Backend won’t switch to hosted: Ensure `.env` sets `EMBEDDING_BACKEND=llm_api` and rerun the kernel. Cell 2/4 must run so `python-dotenv` loads `.env` before cell 8a prints settings.
+- Missing API key: Cell 8a raises an error if `llm_api` is selected without `OPENAI_API_KEY`. Add it to `.env` (no quotes/extra spaces) or export it in your shell.
+- Remote calls are very slow: Batch multiple texts per embeddings request, use a lighter model (e.g., `text-embedding-3-small`), and cache vectors so only new/changed rows call the API. Long runtimes happen if Step 9 embeds one row at a time over the network.
+- Vector length mismatch: If you see “Embedding length mismatch…”, set `EMBEDDING_DIM` in `.env` to the correct integer for your model, then rerun Step 9 to recreate the `VECTOR(n)` column.
+- Dimension inference got “stuck”: When `SKIP_EMBEDDING_SMOKETEST=1`, the first produced embedding defines the size. If you change models afterward, drop/recreate `patient_embeddings` by rerunning Step 9.
+- Postgres connection fails: Verify the DB is up (try `docker-compose up -d`), the host/port match `localhost:6432`, and cell 5 succeeded in `CREATE EXTENSION vector`.
+- Rate limits/429s from provider: Add a small delay and retry logic, reduce batch size, or throttle requests to stay under limits.
