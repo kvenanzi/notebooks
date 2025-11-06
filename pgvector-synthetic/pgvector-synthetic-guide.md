@@ -1,12 +1,14 @@
 # Technical User Guide: `pgvector-synthetic.ipynb`
 
-This guide walks through every numbered section of the `pgvector-synthetic.ipynb` notebook and explains how to operate it end-to-end. The workflow builds a synthetic patient analytics stack on top of PostgreSQL with the `pgvector` extension, generates embeddings with a local Ollama model, and layers semantic search plus visual analytics.
+This guide walks through every numbered section of the `pgvector-synthetic.ipynb` notebook and explains how to operate it end-to-end. The workflow builds a synthetic patient analytics stack on top of PostgreSQL with the `pgvector` extension, generates embeddings from either a local Ollama model or an OpenAPI-compatible hosted service, and layers semantic search plus visual analytics.
 
 ## Prerequisites
 - **PostgreSQL** reachable at `localhost:6432` with a database named `patient_db` and credentials matching the connection cell (`user="kevin"`, `password="password123"`). Install the [`pgvector`](https://github.com/pgvector/pgvector) extension in this database. Run the docker-compose file in the project root for a quick install.
 - **Python environment** capable of installing packages listed below (the notebook relies on pip inside the runtime).
+- The notebook auto-loads environment variables from `pgvector-synthetic/.env` via `python-dotenv`.
 - **Data files** `data/patients.csv` and `data/allergies.csv` present relative to the notebook.
 - **Ollama** running locally on the default port `11434` with the `phi4-mini` embedding model pulled and ready (`ollama pull phi4-mini`).
+- **Optional hosted embeddings** When selecting the `llm_api` backend, export `OPENAI_API_KEY` and (if needed) `OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`, `OPENAI_ORG`, plus `EMBEDDING_DIM` if the remote vector dimensionality differs.
 
 ## Step-by-step breakdown
 
@@ -41,52 +43,64 @@ Running the cell populates the two tables and prints row counts so you can confi
 *Cell 13*  
 Runs a SQL `WITH` query that aggregates demographics, SDOH risk buckets, insurance, lifestyle flags, mortality signals, and summarized allergies per patient. The result is a dataframe `df_context` with one row per patient and a human-readable `context_text` string. This textual synopsis is the basis for embedding generation and semantic search in later steps.
 
-### 8. Local embedding function using Ollama φ4-mini
+### 8a. Configure embedding backend
 *Cell 15*  
-Defines `get_ollama_embedding`, a thin wrapper around the Ollama embeddings HTTP API. It posts the `context_text` to `http://localhost:11434/api/embeddings` using the `phi4-mini` model and validates the response. A quick smoke test ensures the service returns vectors of the expected dimensionality (3072 in this setup).
+Chooses between the local `"ollama"` backend and the hosted `"llm_api"` option. When the hosted path is selected the cell verifies that `OPENAI_API_KEY` is present, applies optional overrides (`OPENAI_BASE_URL`, `OPENAI_EMBED_MODEL`, `OPENAI_ORG`, `EMBEDDING_DIM`), and allows you to skip the automatic smoke test via `SKIP_EMBEDDING_SMOKETEST=1`.
+
+### 8b. Embedding helper functions
+*Cell 16*  
+Wraps both embedding providers behind `get_embedding`. The helper dispatches to the correct HTTP endpoint, normalizes responses to Python lists, and enforces a consistent vector length. When the smoke test is enabled it immediately calls the selected backend to surface configuration issues early.
 
 ### 9. Create and fill `patient_embeddings`
-*Cell 17*  
-Drops/recreates the `patient_embeddings` table with columns `(patient_id, context_text, embedding VECTOR(3072))`. Iterates through `df_context`, calls the Ollama embedding endpoint for each patient, and inserts the results. Re-running this cell after changing context generation will refresh the embeddings in-place.
+*Cell 19*  
+Discovers the embedding dimensionality (using the smoke-test result or the first context embedding) before creating the table so it works with either backend. Iterates through `df_context`, calls `get_embedding` for each row, and inserts the vectors. Re-running this cell after changing context generation will refresh the embeddings in-place.
 
 ### 10. Train UMAP reducer
-*Cell 19*  
+*Cell 21*  
 Pulls all embedding vectors from the database, converts them to `float32` numpy arrays, and fits a 2D [UMAP](https://umap-learn.readthedocs.io/) reducer (`metric="cosine"`). This produces `embedding_2d`, a low-dimensional layout capturing similarity structure among patients. The fitted reducer is stored in `reducer` for reuse (e.g., projecting query embeddings).
 
 ### 11. Semantic search query
-*Cell 21*  
-Demonstrates a basic vector similarity query using `pgvector`’s `<=>` operator. An example query string is embedded with Ollama, then Postgres computes cosine similarity (`1 - (embedding <=> query_vector)`) against all patients to return the top matches. Modify the query text or `LIMIT` clause to explore different cohorts.
+*Cell 23*  
+Demonstrates a basic vector similarity query using `pgvector`’s `<=>` operator. An example query string is embedded through the selected backend, then Postgres computes cosine similarity (`1 - (embedding <=> query_vector)`) against all patients to return the top matches. Modify the query text or `LIMIT` clause to explore different cohorts.
 
 ### 12. Visualization (Matplotlib + Plotly)
-*Cell 23*  
+*Cell 25*  
 Plots the 2D UMAP embedding in Matplotlib for a quick glance and builds an interactive Plotly scatter (`hover_data` reveals patient IDs and context snippets). Use this to verify clustering behavior and to spot-check that similar patients are near one another.
 
 ### 12 (bis). Add NLP Semantic Search for Patients
-*Cell 25*  
+*Cell 27*  
 Introduces a higher-level semantic search pipeline:
-- `embed_query_ollama` embeds user queries.
+- `embed_query_vector` embeds user queries through the selected backend.
 - `semantic_search_fused` orchestrates filter parsing, candidate selection, cosine similarity scoring, and result explanation.
 The function prints a tabulated summary including demographic context, SDOH bucket, allergy samples, similarity scores, and which optional filters matched.
 
 ### 13. Filtering + fused semantic search
-*Cell 27*  
+*Cell 29*  
 Adds deterministic filters on top of the vector search:
 - `parse_filters` infers gender, SDOH buckets, and mortality windows from natural-language cues.
 - `candidate_ids_from_filters` executes SQL to pre-select patient IDs satisfying those filters before cosine scoring. This hybrid approach narrows the candidate set for faster, more relevant results.
 
 ### Run queries
-*Cell 29*  
+*Cell 31*  
 Calls `semantic_search_fused` with several example prompts. Each invocation prints a ranked table in the notebook so you can inspect output quality and the explanation trail.
 
 ### Project query into UMAP space (optional)
-*Cell 30*  
+*Cell 32*  
 Takes the last query embedding (`q_emb`), transforms it via the fitted UMAP reducer, and overlays the point on the patient embedding scatter plot. This helps visualize where the query vector sits relative to existing patient clusters.
 
 ## Operating tips
 - If you restart the kernel, re-run the notebook from the top so that the database connection, helper functions, and reducer object are repopulated.
 - Long-running steps (embedding generation, UMAP fitting) benefit from monitoring system load; consider batching or caching if working with larger patient cohorts.
 - When adapting to production data, tighten data types in the table DDL and add foreign keys/indexes appropriate for your workload.
-- To swap embedding models, update the Ollama endpoint/model name and adjust the `VECTOR(n)` dimension in the schema accordingly.
+- To swap embedding models or providers, update `EMBEDDING_BACKEND` (and related environment variables) and ensure the `VECTOR(n)` column matches the returned dimensionality.
 
 With this guide, you can trace how each section of the notebook transforms raw CSVs into a searchable, explainable semantic layer on top of Postgres + pgvector.
 
+## Troubleshooting
+- Backend won’t switch to hosted: Ensure `.env` sets `EMBEDDING_BACKEND=llm_api` and rerun the kernel. Cell 2/4 must run so `python-dotenv` loads `.env` before cell 8a prints settings.
+- Missing API key: Cell 8a raises an error if `llm_api` is selected without `OPENAI_API_KEY`. Add it to `.env` (no quotes/extra spaces) or export it in your shell.
+- Remote calls are very slow: Batch multiple texts per embeddings request, use a lighter model (e.g., `text-embedding-3-small`), and cache vectors so only new/changed rows call the API. Long runtimes happen if Step 9 embeds one row at a time over the network.
+- Vector length mismatch: If you see “Embedding length mismatch…”, set `EMBEDDING_DIM` in `.env` to the correct integer for your model, then rerun Step 9 to recreate the `VECTOR(n)` column.
+- Dimension inference got “stuck”: When `SKIP_EMBEDDING_SMOKETEST=1`, the first produced embedding defines the size. If you change models afterward, drop/recreate `patient_embeddings` by rerunning Step 9.
+- Postgres connection fails: Verify the DB is up (try `docker-compose up -d`), the host/port match `localhost:6432`, and cell 5 succeeded in `CREATE EXTENSION vector`.
+- Rate limits/429s from provider: Add a small delay and retry logic, reduce batch size, or throttle requests to stay under limits.
